@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Renderer 规格</title>
+  <style>
+    :root { --bg:#f7f8fa; --paper:#fff; --ink:#17202a; --muted:#647184; --line:#dbe2eb; --accent:#1e6f73; --soft:#e8f5f3; --code:#111827; --code-bg:#eef2f6; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.62; }
+    header { padding:40px 24px 30px; background:#13262f; color:white; border-bottom:5px solid #68b0ab; }
+    main { max-width:1080px; margin:0 auto; padding:28px 20px 56px; }
+    h1,h2,h3 { margin:0; line-height:1.25; } h1{font-size:32px;} h2{font-size:22px;margin-bottom:14px;} h3{font-size:17px;margin:20px 0 8px;}
+    p { margin:10px 0; } section { background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:24px; margin:18px 0; }
+    ul,ol { margin:10px 0 0 22px; padding:0; } li{margin:6px 0;}
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code-bg); color:var(--code); border-radius:4px; padding:2px 5px; font-size:.94em; }
+    pre { overflow:auto; background:#101820; color:#e8eef4; border-radius:8px; padding:16px; font-size:13px; line-height:1.55; } pre code{background:transparent;color:inherit;padding:0;}
+    table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; } th,td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:10px 8px;} th{background:#f3f6f9;color:#314050;}
+    a { color:#176b87; } .subtitle{max-width:820px;color:#dce7ec;margin-top:12px;} .callout{border-left:4px solid var(--accent);background:var(--soft);padding:12px 14px;border-radius:6px;margin:14px 0;}
+    footer{max-width:1080px;margin:0 auto 36px;padding:0 20px;color:var(--muted);font-size:13px;}
+  </style>
+</head>
+<body>
+<header><h1>Renderer 规格</h1><p class="subtitle">定义 direct 与 rendered 的分发、renderer 接口、Markdown、结构化数据和 PDF 渲染策略。</p></header>
+<main>
+
+<section>
+  <h2>1. 责任边界</h2>
+  <p><code>renderers-spec.html</code> 定义 renderer 的接口、行为和失败模式。哪些扩展名进入 rendered 由 <a href="config-spec.html">config-spec.html</a> 维护。</p>
+</section>
+<section>
+  <h2>2. direct 与 rendered</h2>
+  <table>
+    <thead><tr><th>类型</th><th>服务端职责</th><th>浏览器体验</th></tr></thead>
+    <tbody>
+      <tr><td>direct</td><td>安全校验后返回原文件和正确 media type。</td><td>浏览器直接展示或播放。</td></tr>
+      <tr><td>rendered</td><td>读取源文件，生成安全 HTML 阅读页。</td><td>用户看到项目统一样式的预览页面。</td></tr>
+    </tbody>
+  </table>
+</section>
+<section>
+  <h2>3. Renderer 接口</h2>
+  <pre><code>class Renderer(Protocol):
+    name: str
+    def can_render(path: Path, config: AppConfig) -> bool: ...
+    def render(path: Path, request_path: str) -> HTMLResponse: ...</code></pre>
+  <p>实现可不照搬该接口，但应保持“按配置选择 renderer、返回统一 HTML 页面、失败可回退”的设计。</p>
+</section>
+<section>
+  <h2>4. Markdown Renderer</h2>
+  <ul>
+    <li>读取文本时限制最大文件大小；默认限制见 <a href="config-spec.html">config-spec.html</a>。</li>
+    <li>服务端渲染 Markdown，并对 HTML 做清洗或默认转义危险内容。</li>
+    <li>代码块、表格和链接应有基础样式。</li>
+    <li>本地相对链接应保持可点击，并继续通过 tunnel-preview 访问。</li>
+  </ul>
+</section>
+<section>
+  <h2>5. Structured Data Renderer</h2>
+  <p>结构化数据 renderer 负责 JSON、YAML 等配置指定的结构化文本类型。</p>
+  <ul>
+    <li>解析成功时显示格式化树或格式化文本视图。</li>
+    <li>解析失败时回退到带行号的安全文本视图。</li>
+    <li>必须做 HTML 转义。</li>
+    <li>必须限制最大文件大小，避免超大文件卡住页面；默认限制见 <a href="config-spec.html">config-spec.html</a>。</li>
+    <li>YAML 预览应尽量保留文本阅读体验；结构化树作为增强，不要求初版完整保留注释语义。</li>
+  </ul>
+</section>
+<section>
+  <h2>6. PDF Renderer</h2>
+  <p>初版 PDF 明确归类为 <code>rendered</code>，不是 <code>direct</code>。实现采用浏览器内嵌 PDF：服务端返回统一 HTML wrapper，在 wrapper 中通过 <code>&lt;iframe&gt;</code>、<code>&lt;object&gt;</code> 或等价方式加载安全校验后的 PDF 文件。</p>
+  <p>后续可选方案：</p>
+  <table>
+    <thead><tr><th>方案</th><th>优点</th><th>代价</th></tr></thead>
+    <tbody>
+      <tr><td>浏览器内嵌 PDF</td><td>实现最轻。</td><td>不同浏览器和远程环境表现不完全一致。</td></tr>
+      <tr><td>PDF.js</td><td>体验一致，前端可控。</td><td>需要引入静态资源和前端逻辑。</td></tr>
+      <tr><td>服务端转图片</td><td>页面展示稳定。</td><td>依赖重，CPU/磁盘开销更高。</td></tr>
+    </tbody>
+  </table>
+  <p>已确认 MVP 采用浏览器内嵌 PDF，暂不引入 PDF.js，也不做服务端转图片。后续如体验不足，再升级到 PDF.js。</p>
+</section>
+<section>
+  <h2>7. 统一失败模式</h2>
+  <ul>
+    <li>不因 renderer 失败暴露源文件原文给浏览器下载。</li>
+    <li>可返回安全错误页，说明渲染失败原因类别。</li>
+    <li>解析失败但文本可读时，允许回退为安全文本视图。</li>
+    <li>超过大小限制时返回明确错误页，文案使用“文件过大，请用 SSH/编辑器查看”。</li>
+  </ul>
+</section>
+
+</main>
+<footer>维护约定：跨文档共享的默认值只在本规格中记录，其他文档引用本规格，避免重复维护。</footer>
+</body>
+</html>

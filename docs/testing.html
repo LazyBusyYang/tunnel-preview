@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tunnel-preview 测试与 GitHub Actions 门禁设计</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --paper: #ffffff;
+      --ink: #17202a;
+      --muted: #647184;
+      --line: #dbe2eb;
+      --accent: #1e6f73;
+      --accent-bg: #e8f5f3;
+      --warn: #8a5a00;
+      --warn-bg: #fff7df;
+      --code-bg: #eef2f6;
+      --code: #111827;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+    header {
+      padding: 40px 24px 30px;
+      background: #13262f;
+      color: white;
+      border-bottom: 5px solid #68b0ab;
+    }
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.25; }
+    h1 { font-size: 32px; letter-spacing: 0; }
+    h2 { font-size: 22px; margin-bottom: 14px; }
+    h3 { font-size: 17px; margin: 20px 0 8px; }
+    p { margin: 10px 0; }
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 18px 0;
+    }
+    ul, ol { margin: 10px 0 0 22px; padding: 0; }
+    li { margin: 6px 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--code-bg);
+      color: var(--code);
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-size: 0.94em;
+    }
+    pre {
+      overflow: auto;
+      background: #101820;
+      color: #e8eef4;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    pre code { background: transparent; color: inherit; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+    th { background: #f3f6f9; color: #314050; }
+    .subtitle {
+      max-width: 800px;
+      color: #dce7ec;
+      margin-top: 12px;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+      color: #dce7ec;
+      font-size: 13px;
+    }
+    .pill {
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(255,255,255,.08);
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-bg);
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin: 14px 0;
+    }
+    .warn { border-left-color: #d49100; background: var(--warn-bg); color: var(--warn); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfd;
+    }
+    .mini strong { display: block; margin-bottom: 4px; }
+    footer {
+      max-width: 1080px;
+      margin: 0 auto 36px;
+      padding: 0 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>tunnel-preview 测试与 GitHub Actions 门禁设计</h1>
+    <p class="subtitle">本项目要求同时具备单元测试、集成测试和 GitHub Actions 门禁。Docker build 作为发布与手动验证能力纳入 CI 设计，但不应拖慢普通 PR 的反馈。</p>
+    <div class="meta">
+      <span class="pill">项目：tunnel-preview</span>
+      <span class="pill">框架：FastAPI</span>
+      <span class="pill">测试：pytest</span>
+      <span class="pill">CI：GitHub Actions</span>
+      <span class="pill">文档日期：2026-06-05</span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>1. 测试目标</h2>
+      <p>测试体系需要覆盖本项目的两个核心风险：文件访问边界和远程预览可用性。所有测试都应围绕“只展示允许内容、拒绝越界和隐藏内容、可稳定打开支持类型”展开。</p>
+      <div class="grid">
+        <div class="mini">
+          <strong>安全边界</strong>
+          root 限制、路径穿越、符号链接越界、隐藏规则命中路径、未允许后缀访问。
+        </div>
+        <div class="mini">
+          <strong>目录体验</strong>
+          目录列表过滤、排序、分页、上级目录入口、点开头目录可见性和隐藏规则覆盖。
+        </div>
+        <div class="mini">
+          <strong>文件预览</strong>
+          direct 类型静态返回，rendered 类型通过项目 renderer 输出安全可读页面。
+        </div>
+        <div class="mini">
+          <strong>部署门禁</strong>
+          lint、format、unit、integration、Docker build 和容器 smoke 分层执行。
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 测试分层</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>层级</th>
+            <th>目录建议</th>
+            <th>运行频率</th>
+            <th>覆盖重点</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>单元测试</td>
+            <td><code>tests/unit/</code></td>
+            <td>每次 PR / push</td>
+            <td>配置解析、路径规范化、白名单判断、隐藏规则匹配、分页计算、media type 判断。</td>
+          </tr>
+          <tr>
+            <td>集成测试</td>
+            <td><code>tests/integration/</code></td>
+            <td>每次 PR / push</td>
+            <td>FastAPI app + 临时目录 fixture，验证 HTTP 行为和目录页输出。</td>
+          </tr>
+          <tr>
+            <td>容器 smoke</td>
+            <td><code>tests/smoke/</code> 或脚本</td>
+            <td>手动或发布前</td>
+            <td>Docker 镜像能启动，<code>/healthz</code> 正常，示例目录可预览。</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        本项目集成测试不需要真实外部服务。应使用 pytest 的临时目录构造 fixture 文件树，并通过 FastAPI TestClient 或 httpx ASGI client 验证服务行为。
+      </div>
+    </section>
+
+    <section>
+      <h2>3. 单元测试要求</h2>
+      <p>单元测试应尽量不启动 HTTP 服务，聚焦纯函数和小模块行为。</p>
+      <ul>
+        <li>配置文件解析：默认配置、用户覆盖、direct/rendered/hide/page_size 合并逻辑。</li>
+        <li>文件类型判断：按 <a href="config-spec.html">config-spec.html</a> 中的 direct / rendered 配置分组测试，不在测试文档重复维护扩展名清单。</li>
+        <li>隐藏规则：按 <a href="config-spec.html">config-spec.html</a> 中的默认 hide patterns 和 gitignore-like 语义测试。</li>
+        <li>路径安全：普通相对路径、URL 编码路径、<code>..</code>、重复斜杠、符号链接解析。</li>
+        <li>分页：默认 <code>page_size=100</code>，非法 page 参数回退或返回明确错误。</li>
+        <li>排序：目录优先，文件随后；同类按名称稳定排序。</li>
+        <li>renderer 选择：direct 文件不进入 renderer，rendered 文件进入对应 renderer。</li>
+      </ul>
+      <pre><code>pytest tests/unit/</code></pre>
+    </section>
+
+    <section>
+      <h2>4. 集成测试要求</h2>
+      <p>集成测试应启动完整 FastAPI app，并围绕临时 root 目录验证 HTTP 响应。</p>
+      <table>
+        <thead>
+          <tr>
+            <th>场景</th>
+            <th>预期</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>访问目录</td>
+            <td>返回目录 HTML；显示子目录和支持文件；不显示不支持文件。</td>
+          </tr>
+          <tr>
+            <td>访问 direct 文件</td>
+            <td>返回 200 和正确 content type；HTML、图片、WebP、MP4 可被浏览器直接处理。</td>
+          </tr>
+          <tr>
+            <td>访问 rendered 文件</td>
+            <td>返回项目渲染页面；具体 rendered 类型由 <a href="config-spec.html">config-spec.html</a> 维护。</td>
+          </tr>
+          <tr>
+            <td>访问不支持文件</td>
+            <td>返回 404。</td>
+          </tr>
+          <tr>
+            <td>访问隐藏规则命中路径</td>
+            <td>目录页不显示，直接访问返回 404。</td>
+          </tr>
+          <tr>
+            <td>路径穿越</td>
+            <td>返回 404。</td>
+          </tr>
+          <tr>
+            <td>符号链接</td>
+            <td>root 内符号链接允许；越出 root 的符号链接返回 404。</td>
+          </tr>
+          <tr>
+            <td>分页</td>
+            <td>目录项超过配置的 page size 时分页，<code>?page=2</code> 返回下一页。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Renderer 测试按 <a href="renderers-spec.html">renderers-spec.html</a> 覆盖解析成功、解析失败回退、安全转义和大文件限制；隐藏规则测试按 <a href="config-spec.html">config-spec.html</a> 和 <a href="security-spec.html">security-spec.html</a> 覆盖目录隐藏和直接访问 404。</p>
+      <pre><code>pytest tests/integration/</code></pre>
+    </section>
+
+    <section>
+      <h2>5. 本地测试标准</h2>
+      <p>本项目建议使用 Python 3.11+ 和 <code>uv</code> 管理开发环境。具体版本可以在实现阶段通过 <code>pyproject.toml</code> 固化。</p>
+      <pre><code>uv venv .venv --python 3.11
+source .venv/bin/activate
+uv pip install -e '.[dev]'
+ruff check .
+ruff format --check .
+pytest tests/unit/ tests/integration/</code></pre>
+      <p>若实现 Dockerfile，应补充本地容器 smoke：</p>
+      <pre><code>docker build -t tunnel-preview:local .
+docker run --rm -p 5500:5500 -v "$PWD:/workspace:ro" tunnel-preview:local \
+  tunnel-preview --root /workspace --host 0.0.0.0 --port 5500</code></pre>
+    </section>
+
+    <section>
+      <h2>6. GitHub Actions 门禁</h2>
+      <p>GitHub Actions 需要拆分为快速必跑门禁和较重的镜像构建门禁。普通 PR 应快速反馈；发布镜像构建只在明确版本动作发生时运行。</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Workflow</th>
+            <th>触发</th>
+            <th>是否必需</th>
+            <th>职责</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ci.yml</code></td>
+            <td>pull_request、push 到任意分支</td>
+            <td>是</td>
+            <td>ruff、format check、unit tests、integration tests。</td>
+          </tr>
+          <tr>
+            <td><code>docker.yml</code></td>
+            <td>tag；main/release 分支上 <code>VERSION</code> 变化；手动 dispatch</td>
+            <td>发布前必需</td>
+            <td>Docker build，必要时 push 镜像。</td>
+          </tr>
+          <tr>
+            <td><code>container-smoke.yml</code></td>
+            <td>workflow_dispatch；可选在 docker build 后调用</td>
+            <td>建议</td>
+            <td>启动镜像并验证 <code>/healthz</code>、目录页和典型文件访问。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>7. Docker build 触发逻辑</h2>
+      <p>Docker build 不建议在每个 PR 默认执行，以免拉长普通开发反馈。建议采用以下触发策略：</p>
+      <ul>
+        <li>任何语义化版本 tag 触发镜像构建，例如 <code>v1.0.0</code> 或 <code>1.0.0</code>。</li>
+        <li>特殊 tag <code>dev</code> 不触发版本镜像构建，避免覆盖或混淆正式版本。</li>
+        <li><code>main</code> 分支仅在 <code>VERSION</code> 文件发生变化时触发版本镜像构建。</li>
+        <li><code>release/**</code> 分支仅在 <code>VERSION</code> 文件发生变化时触发版本镜像构建。</li>
+        <li>手动 <code>workflow_dispatch</code> 可用于发布前验证，不应依赖普通 PR 自动执行。</li>
+      </ul>
+      <div class="callout">
+        Docker workflow 默认只 build、不 push。若后续需要发布到镜像仓库，应新增显式登录、权限和 tag 策略，不在普通 PR 中使用生产凭据。
+      </div>
+    </section>
+
+    <section>
+      <h2>8. 容器 smoke 验证</h2>
+      <p>容器 smoke 只验证镜像能启动并完成最小预览链路，不替代单元测试和集成测试。</p>
+      <pre><code>docker build -t tunnel-preview:local .
+docker run -d --name tunnel-preview-smoke -p 5500:5500 \
+  -v "$PWD:/workspace:ro" tunnel-preview:local \
+  --host 0.0.0.0 --port 5500
+curl -fsS http://127.0.0.1:5500/healthz
+curl -fsS http://127.0.0.1:5500/
+docker rm -f tunnel-preview-smoke</code></pre>
+      <p>smoke 至少应覆盖 <code>/healthz</code> 和目录页。更完整的典型文件访问仍由集成测试保障。</p>
+    </section>
+
+    <section>
+      <h2>9. 通过标准</h2>
+      <ul>
+        <li><code>ruff check .</code> 通过。</li>
+        <li><code>ruff format --check .</code> 通过。</li>
+        <li><code>pytest tests/unit/ tests/integration/</code> 通过。</li>
+        <li>Dockerfile 存在且可用于本地 smoke。</li>
+        <li>GitHub Actions 至少包含快速 CI、Docker build 和手动容器 smoke 三类 workflow。</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    维护约定：测试和门禁设计必须随实现同步更新；当文档与代码冲突时，以本文档和相关规格文档作为修复代码的依据。
+  </footer>
+</body>
+</html>

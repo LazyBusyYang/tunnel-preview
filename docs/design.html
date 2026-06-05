@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tunnel-preview 项目设计</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #18202a;
+      --muted: #5f6b7a;
+      --line: #dce2ea;
+      --accent: #176b87;
+      --accent-soft: #e6f4f7;
+      --warn: #8a5a00;
+      --warn-bg: #fff7df;
+      --code: #0f1720;
+      --code-bg: #eef2f6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    header {
+      background: #102531;
+      color: white;
+      padding: 40px 24px 32px;
+      border-bottom: 5px solid #f0b44c;
+    }
+
+    main {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
+    }
+
+    h1, h2, h3 { line-height: 1.25; margin: 0; }
+    h1 { font-size: 34px; letter-spacing: 0; }
+    h2 { font-size: 22px; margin-bottom: 14px; }
+    h3 { font-size: 17px; margin: 20px 0 8px; }
+
+    .subtitle {
+      max-width: 760px;
+      margin-top: 12px;
+      color: #d8e4ea;
+      font-size: 16px;
+    }
+
+    .meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+      font-size: 13px;
+      color: #d8e4ea;
+    }
+
+    .pill {
+      border: 1px solid rgba(255,255,255,0.26);
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.08);
+    }
+
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      margin: 18px 0;
+    }
+
+    p { margin: 10px 0; }
+    ul, ol { margin: 10px 0 0 22px; padding: 0; }
+    li { margin: 6px 0; }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--code);
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-size: 0.94em;
+    }
+
+    pre {
+      overflow: auto;
+      background: #101820;
+      color: #e8eef4;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      color: inherit;
+      background: transparent;
+      padding: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+
+    th {
+      color: #314050;
+      background: #f3f6f9;
+      font-weight: 650;
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin: 14px 0;
+    }
+
+    .warn {
+      border-left-color: #d49100;
+      background: var(--warn-bg);
+      color: var(--warn);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfd;
+    }
+
+    .mini strong { display: block; margin-bottom: 4px; }
+
+    footer {
+      max-width: 1040px;
+      margin: 0 auto 36px;
+      padding: 0 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>tunnel-preview 项目设计</h1>
+    <p class="subtitle">一个面向远程开发场景的受限文件预览服务：通过 FastAPI 暴露指定目录下的 HTML、图片和视频文件，同时隐藏并拒绝访问不支持的文件类型。</p>
+    <div class="meta">
+      <span class="pill">项目名：tunnel-preview</span>
+      <span class="pill">Python package：tunnel_preview</span>
+      <span class="pill">框架：FastAPI</span>
+      <span class="pill">文档日期：2026-06-05</span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>1. 背景与目标</h2>
+      <p>本地开发时，HTML 文件通常可以直接用本地浏览器打开；而在远程开发机、容器或跳板环境中，开发者更需要一个可通过 SSH tunnel、Cursor/VS Code 端口转发访问的轻量预览服务。</p>
+      <p><code>tunnel-preview</code> 的目标不是成为通用静态文件服务器，而是提供一个受限、可控、适合远程开发的查看入口。</p>
+      <div class="callout">
+        核心原则：只展示和服务明确允许预览的文件类型；目录页不泄露不支持文件；直接输入不支持文件 URL 时拒绝访问。
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 已确定设计</h2>
+      <div class="grid">
+        <div class="mini">
+          <strong>主要场景</strong>
+          远程机器上查看项目生成的 HTML、图片、WebP 和 MP4 文件，通过端口转发在本地浏览器打开。
+        </div>
+        <div class="mini">
+          <strong>技术栈</strong>
+          Python + FastAPI + Uvicorn，目录页由服务端渲染简单 HTML。
+        </div>
+        <div class="mini">
+          <strong>访问边界</strong>
+          所有文件访问必须限制在启动参数指定的 root 目录内，防止路径穿越。
+        </div>
+        <div class="mini">
+          <strong>文件白名单</strong>
+          白名单由配置文件驱动，可在开发过程中动态调整；浏览器成熟支持的类型直接静态返回，需要项目渲染的类型走专用 renderer。
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. 预期行为</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>URL 类型</th>
+            <th>行为</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/</code> 或目录 URL</td>
+            <td>显示目录页</td>
+            <td>只列出子目录和支持的文件；隐藏其他文件。</td>
+          </tr>
+          <tr>
+            <td>direct 文件</td>
+            <td>正常打开</td>
+            <td>按 <a href="config-spec.html">config-spec.html</a> 中的 direct 分组安全返回。</td>
+          </tr>
+          <tr>
+            <td>rendered 文件</td>
+            <td>渲染后打开</td>
+            <td>按 <a href="config-spec.html">config-spec.html</a> 中的 rendered 分组交给 <a href="renderers-spec.html">renderers-spec.html</a> 定义的 renderer。</td>
+          </tr>
+          <tr>
+            <td>隐藏或不支持文件</td>
+            <td>拒绝访问</td>
+            <td>隐藏规则和文件类型规则见 <a href="config-spec.html">config-spec.html</a>；直接访问返回 404。</td>
+          </tr>
+          <tr>
+            <td><code>/../outside.txt</code></td>
+            <td>拒绝访问</td>
+            <td>规范化路径后必须仍位于 root 内。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>4. 目录页设计</h2>
+      <p>目录页用于浏览远程目录结构，但不承担完整文件管理器职责。</p>
+      <ul>
+        <li>显示当前相对路径。</li>
+        <li>如果不是 root，显示返回上级目录入口。</li>
+        <li>优先显示子目录，再显示支持的文件。</li>
+        <li>默认不隐藏点开头目录，允许进入可能包含文档的点目录。</li>
+        <li>使用配置文件中的 gitignore-like 规则隐藏目录或文件；具体默认值见 <a href="config-spec.html">config-spec.html</a>。</li>
+        <li>不显示隐藏规则命中的路径，也不显示不支持文件。</li>
+        <li>控制单页长度；默认值见 <a href="config-spec.html">config-spec.html</a>。</li>
+        <li>超过上限时使用分页，例如 <code>?page=2</code>。</li>
+      </ul>
+      <div class="callout">
+        目录过滤是可配置策略。默认隐藏规则和 gitignore-like 语义由 <a href="config-spec.html">config-spec.html</a> 维护。
+      </div>
+    </section>
+
+    <section>
+      <h2>5. 配置文件规格</h2>
+      <p>文件类型分组、默认隐藏规则、分页默认值、配置覆盖规则和配置查找顺序由 <a href="config-spec.html">config-spec.html</a> 维护。本文档不重复列出具体扩展名或默认隐藏项，避免后续变更时多处同步。</p>
+      <ul>
+        <li><code>direct</code> 表示浏览器已有成熟加载方案的类型，服务端只负责安全地返回文件。</li>
+        <li><code>rendered</code> 表示需要项目内 renderer 的类型。</li>
+        <li><code>hide.patterns</code> 控制目录列表和直接访问的隐藏规则。</li>
+        <li>不配置访问 token；访问边界由监听地址、SSH tunnel 或远程开发端口转发控制。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>6. CLI 快速启动规格</h2>
+      <p>CLI 的核心体验是远程开发时在项目根目录执行 <code>tunnel-preview</code> 一键阻塞式启动 server；未显式设置端口时自动绑定随机可用端口。详细规则由 <a href="cli-spec.html">cli-spec.html</a> 维护。</p>
+      <pre><code>cd /workspace/project
+tunnel-preview</code></pre>
+      <ul>
+        <li>默认 root 为当前工作目录。</li>
+        <li>命令可通过 Python console script 加入用户 PATH。</li>
+        <li>默认前台阻塞运行，按 <code>Ctrl-C</code> 停止。</li>
+        <li>host、配置查找和分页默认值继续引用 <a href="config-spec.html">config-spec.html</a>。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>7. FastAPI 路由草案</h2>
+      <pre><code>GET /healthz
+  返回服务状态和 root 信息，不泄露完整敏感路径时可只返回 basename。
+
+GET /{path:path}
+  如果 path 指向目录：渲染目录页。
+  如果 path 指向允许后缀文件：返回文件内容。
+  如果 path 指向不支持文件：返回 404。
+  如果 path 越出 root：返回 404。</code></pre>
+      <p>实现上应使用 <code>pathlib.Path.resolve()</code> 规范化路径，并验证目标路径位于 root 内。</p>
+    </section>
+
+    <section>
+      <h2>8. 安全策略</h2>
+      <ul>
+        <li>默认只监听 <code>127.0.0.1</code>，避免无意暴露到局域网。</li>
+        <li>允许符号链接，但解析后的真实路径必须仍位于 root 内；细节见 <a href="security-spec.html">security-spec.html</a>。</li>
+        <li>目录列表只显示支持文件、允许显示的目录，以及未被隐藏规则命中的路径。</li>
+        <li>隐藏规则默认值见 <a href="config-spec.html">config-spec.html</a>。</li>
+        <li>直接访问不支持文件或隐藏规则命中的路径时返回 <code>404</code>；细节见 <a href="security-spec.html">security-spec.html</a>。</li>
+        <li>响应头可加入 <code>X-Content-Type-Options: nosniff</code>。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>9. 项目结构建议</h2>
+      <pre><code>tunnel-preview/
+  docs/
+    design.html
+  src/
+    tunnel_preview/
+      __init__.py
+      app.py
+      cli.py
+      config.py
+      directory.py
+      security.py
+      templates/
+        directory.html
+  tests/
+    test_security.py
+    test_directory_listing.py
+    test_file_serving.py
+  pyproject.toml
+  README.md</code></pre>
+    </section>
+
+    <section>
+      <h2>10. 测试建议</h2>
+      <ul>
+        <li>目录页只列出目录和支持文件。</li>
+        <li>不支持文件不会出现在目录页。</li>
+        <li>直接访问不支持文件被拒绝。</li>
+        <li>路径穿越被拒绝。</li>
+        <li>分页参数生效，单页长度受控。</li>
+        <li>支持文件返回正确 media type。</li>
+        <li>配置文件可调整文件白名单和隐藏规则。</li>
+        <li>隐藏规则命中的文件或目录不会出现在列表中，直接访问也被拒绝。</li>
+        <li>符号链接可访问，但越出 root 的链接被拒绝。</li>
+        <li>MP4 至少能被浏览器正常打开；后续补充 Range 请求测试。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>11. 待讨论事项</h2>
+      <ol>
+        <li>HTML 文件是否需要禁用或限制外部网络请求？初版建议不拦截，由浏览器和目标页面自行决定。</li>
+        <li>PDF renderer 初版方案已在 <a href="renderers-spec.html">renderers-spec.html</a> 中确认：PDF 属于 rendered，使用浏览器内嵌 PDF wrapper。</li>
+        <li>是否支持自动打开浏览器？远程场景下意义有限，初版建议不做。</li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>
+    本文档记录当前已确定的设计边界和未定事项。后续实现时，应优先保持远程开发场景下的可控预览和低泄露面。
+  </footer>
+</body>
+</html>
