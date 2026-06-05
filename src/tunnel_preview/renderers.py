@@ -12,6 +12,7 @@ from .urls import markdown_link_url, raw_pdf_url
 CSP = (
     "default-src 'none'; "
     "img-src 'self' data:; "
+    "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "frame-src 'self'; "
     "media-src 'self'; "
@@ -66,7 +67,9 @@ def _render_markdown(text: str, request_path: str = "") -> str:
     for line in text.splitlines():
         if line.startswith("```"):
             if in_code:
-                blocks.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
+                blocks.append(
+                    _copyable_pre(f"<code>{html.escape(chr(10).join(code_lines))}</code>")
+                )
                 code_lines.clear()
                 in_code = False
             else:
@@ -96,7 +99,7 @@ def _render_markdown(text: str, request_path: str = "") -> str:
             flush_table()
             paragraph.append(stripped)
     if in_code:
-        blocks.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
+        blocks.append(_copyable_pre(f"<code>{html.escape(chr(10).join(code_lines))}</code>"))
     flush_table()
     flush_paragraph()
     return "\n".join(blocks) or "<p></p>"
@@ -183,7 +186,16 @@ def _render_text(text: str) -> str:
         f'<span class="line"><span class="num">{number}</span>{line}</span>'
         for number, line in enumerate(lines, start=1)
     )
-    return f"<pre>{rows}</pre>"
+    return _copyable_pre(rows)
+
+
+def _copyable_pre(content: str) -> str:
+    return (
+        '<div class="copy-block">'
+        '<button class="copy-button" type="button" aria-label="Copy block">Copy</button>'
+        f"<pre>{content}</pre>"
+        "</div>"
+    )
 
 
 def _page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
@@ -220,12 +232,32 @@ def _page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
       vertical-align: top;
     }}
     th {{ background: #eef2f6; }}
+    .copy-block {{
+      position: relative;
+      margin: 16px 0;
+    }}
+    .copy-button {{
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      border: 1px solid #314050;
+      border-radius: 6px;
+      padding: 4px 8px;
+      background: #f7f8fa;
+      color: #17202a;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.2;
+    }}
+    .copy-button:hover {{ background: #e8f5f3; }}
+    .copy-button:focus {{ outline: 2px solid #68b0ab; outline-offset: 2px; }}
     pre {{
       overflow: auto;
       background: #101820;
       color: #e8eef4;
       border-radius: 8px;
-      padding: 16px;
+      padding: 16px 64px 16px 16px;
       line-height: 1.5;
     }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
@@ -247,7 +279,8 @@ def _page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
     }}
   </style>
 </head>
-<body><main><h1>{escaped_title}</h1>{body}</main></body>
+<body><main><h1>{escaped_title}</h1>{body}</main>
+<script src="/__assets__/copy.js" defer></script></body>
 </html>"""
     return HTMLResponse(
         html_body,

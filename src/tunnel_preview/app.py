@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
+from .assets import COPY_JS
 from .config import AppConfig
 from .renderers import render_file
 from .security import NotFoundPath, file_kind, resolve_request_path, visible_directory_entries
@@ -33,6 +34,14 @@ def create_app(config: AppConfig) -> FastAPI:
         if path.suffix.lower() != ".pdf":
             raise HTTPException(status_code=404)
         return FileResponse(path, media_type="application/pdf")
+
+    @app.get("/__assets__/copy.js")
+    def copy_script() -> Response:
+        return Response(
+            COPY_JS,
+            media_type="text/javascript; charset=utf-8",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
 
     @app.get("/{request_path:path}")
     def preview(request_path: str = "", page: int = 1) -> Response:

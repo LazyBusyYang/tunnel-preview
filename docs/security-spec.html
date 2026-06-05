@@ -67,7 +67,8 @@
   <h2>6. 响应头</h2>
   <ul>
     <li>所有响应建议添加 <code>X-Content-Type-Options: nosniff</code>。</li>
-    <li>rendered 页面必须添加保守 CSP。初版建议：<code>default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-src 'self'; media-src 'self'; object-src 'self'; base-uri 'none'</code>。</li>
+    <li>rendered 页面必须添加保守 CSP。初版建议：<code>default-src 'none'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; media-src 'self'; object-src 'self'; base-uri 'none'</code>。</li>
+    <li>rendered 页面不允许内联脚本；交互增强只能引用项目内固定静态脚本资源。</li>
     <li>direct HTML 不添加 CSP；初版不拦截页面自身行为，避免破坏远程预览。</li>
   </ul>
 </section>

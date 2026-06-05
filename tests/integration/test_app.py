@@ -64,6 +64,31 @@ def test_rendered_markdown_escapes_html(tmp_path: Path) -> None:
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
 
 
+def test_rendered_markdown_code_blocks_are_copyable(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        "# Title\n```bash\necho hello\n```\n",
+        encoding="utf-8",
+    )
+
+    response = client_for(tmp_path).get("/README.md")
+
+    assert response.status_code == 200
+    assert 'aria-label="Copy block">Copy</button>' in response.text
+    assert "<pre><code>echo hello</code></pre>" in response.text
+    assert "<script>" not in response.text
+    assert '<script src="/__assets__/copy.js" defer></script>' in response.text
+    assert "script-src 'unsafe-inline'" not in response.headers["content-security-policy"]
+    assert "script-src 'self'" in response.headers["content-security-policy"]
+
+
+def test_copy_script_is_served_as_controlled_same_origin_asset(tmp_path: Path) -> None:
+    response = client_for(tmp_path).get("/__assets__/copy.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/javascript")
+    assert "function copyBlock" in response.text
+
+
 def test_rendered_markdown_links_and_tables(tmp_path: Path) -> None:
     docs = tmp_path / "docs"
     docs.mkdir()
@@ -114,6 +139,23 @@ def test_pdf_wrapper_percent_encodes_raw_url(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "/__raw__/report%20%231.pdf" in response.text
+
+
+def test_structured_text_renderers_are_copyable_without_hiding_line_numbers(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "config.yaml").write_text("name: demo\ncount: 2\n", encoding="utf-8")
+    (tmp_path / "data.json").write_text('{"name":"demo","count":2}', encoding="utf-8")
+
+    yaml_response = client_for(tmp_path).get("/config.yaml")
+    json_response = client_for(tmp_path).get("/data.json")
+
+    assert yaml_response.status_code == 200
+    assert json_response.status_code == 200
+    assert yaml_response.text.count('class="copy-button"') == 1
+    assert json_response.text.count('class="copy-button"') == 1
+    assert '<span class="num">1</span>name: demo' in yaml_response.text
+    assert "&quot;name&quot;: &quot;demo&quot;" in json_response.text
 
 
 def test_unsupported_hidden_and_traversal_are_404(tmp_path: Path) -> None:

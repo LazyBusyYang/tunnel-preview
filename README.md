@@ -11,14 +11,50 @@ file types, applies root path checks, hides configured paths such as `.git/` and
 
 ## Install
 
-For local development:
+For local development, create a virtual environment with `uv`, install the
+project in editable mode, then run the CLI from that environment:
 
 ```bash
+uv venv
+source .venv/bin/activate
 uv pip install -e '.[dev]'
+tunnel-preview
 ```
 
-After package installation, the `tunnel-preview` command should be available in
-your shell.
+The `source .venv/bin/activate` step matters: `uv pip install -e '.[dev]'`
+installs the `tunnel-preview` console script into `.venv/bin/`, not into your
+global shell `PATH`.
+
+To verify where the command comes from after activation:
+
+```bash
+which tunnel-preview
+# /path/to/tunnel-preview/.venv/bin/tunnel-preview
+```
+
+If you do not want to activate the environment, run the CLI by path:
+
+```bash
+.venv/bin/tunnel-preview
+```
+
+Or let `uv` run it inside the project environment:
+
+```bash
+uv run tunnel-preview
+```
+
+To make the project CLI available whenever you open a shell, add the local
+virtualenv `bin` directory to your shell profile. For Bash:
+
+```bash
+echo 'export PATH="/path/to/tunnel-preview/.venv/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Replace `/path/to/tunnel-preview` with the absolute path to this repository.
+This is convenient on a dedicated development machine, but remember that it
+points to this checkout's virtual environment.
 
 ## Quick Start
 
